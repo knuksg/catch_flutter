@@ -1,5 +1,10 @@
+import 'package:catch_flutter/screens/concern_wish_manager_screen.dart';
+import 'package:catch_flutter/screens/tutorial_screens/profile_setup_screen.dart';
+import 'package:catch_flutter/screens/recommend_screen.dart';
+import 'package:catch_flutter/screens/tutorial_screens/tutorial_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../providers/auth_provider.dart';
 import 'main_screen.dart'; // 변경된 메인 화면 임포트
 
@@ -9,7 +14,6 @@ class SplashLoginScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authProvider);
-    final screenSize = MediaQuery.of(context).size;
 
     // 로그인 상태가 변경되면 메인 화면으로 이동
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -26,30 +30,33 @@ class SplashLoginScreen extends ConsumerWidget {
       backgroundColor: Colors.black,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          double logoSize = screenSize.width * 0.6;
-          double catImageSize = screenSize.width * 0.4;
-
-          if (screenSize.width < 600) {
-            logoSize = screenSize.width * 0.5;
-            catImageSize = screenSize.width * 0.3;
-          }
-
           return Stack(
             children: [
               Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Image.asset(
-                      'assets/images/01_title_logo.png',
-                      width: logoSize,
-                      height: logoSize,
+                    SizedBox(height: 400.h),
+                    Column(
+                      children: [
+                        Image.asset(
+                          'assets/images/01_title_logo.png',
+                          width: 910.w,
+                          height: 450.h,
+                        ),
+                        const SizedBox(height: 10),
+                        Image.asset(
+                          'assets/images/01_title_subtext.png',
+                          width: 910.w,
+                          height: 111.h,
+                        ),
+                      ],
                     ),
                     const Spacer(),
                     Image.asset(
                       'assets/images/01_title_cat.png',
-                      width: catImageSize,
-                      height: catImageSize,
+                      width: 1080.w,
+                      height: 1010.h,
                     ),
                   ],
                 ),

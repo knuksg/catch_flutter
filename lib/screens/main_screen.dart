@@ -1,9 +1,21 @@
-import 'package:catch_flutter/widgets/chat_bubble.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert'; // JSON 파싱을 위해 필요
+import 'dart:math';
 
+import 'package:catch_flutter/core/text_theme.dart';
+import 'package:catch_flutter/screens/recommend_screen.dart';
+import 'package:catch_flutter/screens/concern_wish_manager_screen.dart';
+import 'package:catch_flutter/services/auth_service.dart';
+import 'package:catch_flutter/services/chat_service.dart';
+import 'package:catch_flutter/services/notification_service.dart';
+import 'package:catch_flutter/widgets/chat_bubble.dart';
+import 'package:catch_flutter/widgets/main_image_button.dart';
+import 'package:catch_flutter/widgets/sidebar.dart';
+import 'package:catch_flutter/widgets/top_user_info.dart';
+import 'package:flutter/cupertino.dart';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
 
@@ -15,121 +27,98 @@ class MainScreen extends ConsumerStatefulWidget {
 }
 
 class _MainScreenState extends ConsumerState<MainScreen> {
+  var user;
+  late AuthNotifier authNotifier;
+  final ChatService _chatService = ChatService();
+  final AuthService _authService = AuthService();
   final TextEditingController _controller = TextEditingController();
-  final FocusNode _focusNode = FocusNode(); // FocusNode 추가
-  bool _isVoiceInput = false; // 음성 입력 모드인지 확인하는 플래그
+  final FocusNode _focusNode = FocusNode();
+  bool _isVoiceInput = false;
 
-  String _userMessage = "캐치와 대화해보세요.";
-  String _chatGptResponse = "잠시만 기다려..."; // 초기 응답 메시지
+  String _userMessage = "다리와 대화해보세요.";
+  String _chatGptResponse = "프로필이 등록 되어서 위쪽에 정보가 잘 표시되고 있어. ";
+
+  final NotificationService _notificationService = NotificationService();
 
   @override
   void initState() {
     super.initState();
-    _initializeChatInfo();
+    // initState에서 context나 ref.watch를 사용하지 않습니다.
+    authNotifier = ref.read(authProvider.notifier);
+    _notificationService.initialize(context);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 이미 초기화된 경우 초기화를 건너뜀
+    if (user == null) {
+      user = ref.watch(authProvider); // 안전하게 user 초기화
+      _initializeChatInfo();
+    }
   }
 
   void _initializeChatInfo() async {
-    final url = Uri.parse('http://flyingstone.me:3000/chat/threadId');
-    try {
-      final response = await http.get(url, headers: {
-        'Authorization': 'Bearer your-auth-token', // 필요한 경우 인증 토큰 추가
-      });
-      print(response.body);
-      if (response.statusCode == 200) {
-        print('Chat info loaded successfully');
-        final jsonResponse = json.decode(response.body);
-        ref.read(chatProvider.notifier).updateIds(
-              assistantId: jsonResponse['assistant_id'],
-              threadId: jsonResponse['thread_id'],
-            );
-      }
-    } catch (e) {
-      print('Error loading chat info: $e');
+    final idToken = authNotifier.idToken;
+    final chatInfo = await _chatService.initializeChatInfo(idToken!);
+
+    if (chatInfo.isNotEmpty) {
+      ref.read(chatProvider.notifier).updateIds(
+            assistantId: chatInfo['assistant_id'],
+            threadId: chatInfo['thread_id'],
+          );
     }
+  }
+
+  // 알림 예약 예시
+  void _scheduleNotification() {
+    _notificationService.scheduleRepeatingTextNotification(
+      'Daily Reminder', // 알림 제목
+      'This is your daily reminder!', // 알림 본문
+      DateTime.now().subtract(const Duration(days: 1)), // 알림 시작 날짜
+      DateTime.now().add(const Duration(days: 1)), // 알림 종료 날짜
+      TimeOfDay(
+        hour: DateTime.now().hour,
+        minute: DateTime.now().add(const Duration(minutes: 1)).minute,
+      ), // 알림 시간
+      _notificationService.generateNotificationId(), // 알림 ID
+    );
   }
 
   void sendMessage() async {
     final message = _controller.text;
     final chatState = ref.read(chatProvider);
+    final idToken = authNotifier.idToken;
 
     if (message.isNotEmpty) {
       setState(() {
         _userMessage = message;
         _chatGptResponse = "응답을 기다리는 중...";
-        _isVoiceInput = false; // 메시지를 전송할 때 음성 입력 모드 종료
-        _controller.clear(); // 메시지 전송 후 텍스트 입력창 비우기
-        FocusScope.of(context).unfocus(); // 키보드 내리기
+        _isVoiceInput = false;
+        _controller.clear();
+        FocusScope.of(context).unfocus();
       });
 
-      final url = Uri.parse('http://flyingstone.me:3000/chat/');
-      try {
-        final response = await http.post(
-          url,
-          headers: {
-            'Authorization': 'Bearer your-auth-token', // 필요한 경우 인증 토큰 추가
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode({
-            "message": message,
-            "assistantId": chatState.assistantId,
-            "threadId": chatState.threadId,
-          }),
-        );
-        if (response.statusCode == 200) {
-          final jsonResponse = json.decode(response.body);
-          setState(() {
-            _chatGptResponse = jsonResponse["response"]; // ChatGPT의 응답을 업데이트
-          });
+      final response = await _chatService.sendMessage(
+          message, chatState.assistantId, chatState.threadId, idToken!);
 
-          // 응답에 포함된 assistantId와 threadId를 저장
-          final newAssistantId = jsonResponse['assistantId'];
-          final newThreadId = jsonResponse['threadId'];
-          ref.read(chatProvider.notifier).updateIds(
-                assistantId: newAssistantId,
-                threadId: newThreadId,
-              );
+      print(response);
 
-          // 백엔드에 이 정보를 저장
-          await _saveChatInfo(newAssistantId, newThreadId);
+      setState(() {
+        _chatGptResponse = response["response"] ?? "응답을 받을 수 없습니다.";
+      });
 
-          print('Message sent successfully');
-          print(response.body);
-        } else {
-          setState(() {
-            _chatGptResponse = "응답을 받을 수 없습니다. 다시 시도하세요.";
-          });
-          print('Failed to send message: ${response.statusCode}');
-        }
-      } catch (e) {
-        setState(() {
-          _chatGptResponse = "오류가 발생했습니다: $e";
-        });
-        print('Error sending message: $e');
+      if (response.containsKey('assistantId') &&
+          response.containsKey('threadId')) {
+        final newAssistantId = response['assistantId'];
+        final newThreadId = response['threadId'];
+        ref.read(chatProvider.notifier).updateIds(
+              assistantId: newAssistantId,
+              threadId: newThreadId,
+            );
+
+        await _chatService.saveChatInfo(newAssistantId, newThreadId, idToken);
       }
-    }
-  }
-
-  Future<void> _saveChatInfo(String assistantId, String threadId) async {
-    final url = Uri.parse('http://flyingstone.me:3000/chat/threadId');
-    try {
-      final response = await http.post(
-        url,
-        headers: {
-          'Authorization': 'Bearer your-auth-token', // 필요한 경우 인증 토큰 추가
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          "assistantId": assistantId,
-          "threadId": threadId,
-        }),
-      );
-      if (response.statusCode == 200) {
-        print('Chat info saved successfully');
-      } else {
-        print('Failed to save chat info: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error saving chat info: $e');
     }
   }
 
@@ -137,171 +126,219 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     setState(() {
       _isVoiceInput = !_isVoiceInput;
       if (_isVoiceInput) {
-        FocusScope.of(context).unfocus(); // 음성 입력 모드로 전환 시 키보드 내리기
+        FocusScope.of(context).unfocus();
       } else {
-        FocusScope.of(context).requestFocus(_focusNode); // 텍스트 입력 모드로 전환
+        FocusScope.of(context).requestFocus(_focusNode);
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = ref.watch(authProvider);
-    final String userEmail = user?.email ?? "Unknown User";
-
-    final isKeyboardVisible =
-        MediaQuery.of(context).viewInsets.bottom != 0; // 키보드가 올라왔는지 감지
+    final isKeyboardVisible = MediaQuery.of(context).viewInsets.bottom != 0;
+    final double keyboardHeight = MediaQuery.of(context).viewInsets.bottom > 0
+        ? MediaQuery.of(context).viewInsets.bottom
+        : 250.0; // 기본 키보드 높이 추정치
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
+      drawerScrimColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: Colors.black.withOpacity(0.5),
-        leading: IconButton(
-          color: Colors.white,
-          icon: const Icon(Icons.menu),
-          onPressed: () {
-            // 햄버거 메뉴 클릭 시의 동작
-          },
-        ),
+        backgroundColor: Colors.black.withOpacity(0.8),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (!isKeyboardVisible) // 키보드가 올라왔을 때 캐릭터와 텍스트를 숨김
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const CircleAvatar(
-                    radius: 30,
-                    backgroundImage:
-                        AssetImage('assets/images/03_main_user_char_01.png'),
-                  ),
-                  const Spacer(),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        '$userEmail님',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.all(5),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Text(
-                          '3개월 안에 몸무게 5KG 감량하자',
-                          style: TextStyle(fontSize: 12, color: Colors.white),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            const SizedBox(height: 20),
-            if (!isKeyboardVisible) // 키보드가 올라왔을 때 하단 텍스트를 숨김
-              Align(
+      drawer: SideBar(
+        onPressed: () {
+          Navigator.pop(context);
+        },
+      ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: Image.asset(
+              'assets/images/03_main_bg.png',
+              fit: BoxFit.cover,
+            ),
+          ),
+          Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Image.asset(
+                  'assets/images/03_main_logo.png',
+                  width: 254.w,
+                  height: 124.w,
+                ),
+              )),
+          // 상단 사용자 정보 영역
+          Positioned(
+            top: kToolbarHeight + 24,
+            left: 0,
+            right: 0,
+            child: TopUserInfoWidget(user: user),
+          ),
+          Positioned(
+            top: kToolbarHeight + min(500.h, 350.w),
+            left: 0,
+            right: 0,
+            child: Align(
                 alignment: Alignment.centerLeft,
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: const BorderRadius.only(
-                      topRight: Radius.circular(15),
-                      bottomLeft: Radius.circular(15),
-                      bottomRight: Radius.circular(15),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.shade300,
-                        offset: const Offset(0, 3),
-                        blurRadius: 6,
-                      ),
-                    ],
-                  ),
-                  child: Text(
-                    _userMessage,
-                    style: const TextStyle(fontSize: 16),
+                child: ChatBubble(message: _userMessage)),
+          ),
+          Positioned(
+            bottom: _isVoiceInput
+                ? keyboardHeight + 180.w
+                : isKeyboardVisible
+                    ? 90.w
+                    : 0.w,
+            left: 0,
+            right: 0,
+            child: Column(
+              children: [
+                SizedBox(
+                  width: 500.w,
+                  child: Center(
+                      child: ChatBubble(
+                    message: _chatGptResponse,
+                    isUser: false,
+                  )),
+                ),
+                Center(
+                  child: Image.asset(
+                    'assets/images/01_title_cat.png', // 고양이 이미지 설정
+                    width: _isVoiceInput || isKeyboardVisible ? 284.w : 1080.w,
+                    height: _isVoiceInput || isKeyboardVisible ? 267.h : 1014.h,
                   ),
                 ),
-              ),
-            const SizedBox(height: 20),
-            Center(
+              ],
+            ),
+          ),
+
+          // 메인 고양이 이미지
+          Positioned(
+            top: min(500.w, 670.h),
+            left: 0,
+            right: 10,
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              ImageButtonWidget(
+                  imagePath: 'assets/images/03_main_menu_icon_01.png',
+                  text: '고민/위시 관리',
+                  onPressed: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) =>
+                                const ConcernWishManagerScreen()));
+                  }),
+              const SizedBox(height: 20),
+              ImageButtonWidget(
+                  imagePath: 'assets/images/03_main_menu_icon_02.png',
+                  text: '다리의 추천 상품',
+                  onPressed: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => const RecommendScreen()));
+                  }),
+              const SizedBox(height: 20),
+              ImageButtonWidget(
+                  imagePath: 'assets/images/03_main_menu_icon_03.png',
+                  text: '내 행동 그래프',
+                  onPressed: _scheduleNotification),
+            ]),
+          ),
+          // 하단 마이크 및 텍스트 입력 영역
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              height: _isVoiceInput ? 1143.h : 192.h,
+              color: Colors.black.withOpacity(0.8),
               child: Column(
                 children: [
-                  CustomPaint(
-                    painter: ChatBubblePainter(), // 말풍선 모양 그리기
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      child: Text(
-                        _chatGptResponse,
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Image.asset(
-                    'assets/images/01_title_cat.png',
-                    width: 150,
-                    height: 150,
-                  ),
-                ],
-              ),
-            ),
-            const Spacer(),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: _isVoiceInput
-                  ? GestureDetector(
-                      onTap: toggleVoiceInput,
-                      child: Container(
-                        height: 100,
-                        color: Colors.black,
-                        child: const Center(
-                          child: Icon(
-                            Icons.mic,
-                            color: Colors.green,
-                            size: 50,
+                  Row(
+                    children: [
+                      if (!_isVoiceInput)
+                        InkWell(
+                          onTap: toggleVoiceInput,
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Container(
+                                width: 124.h,
+                                height: 124.h,
+                                decoration: BoxDecoration(
+                                  border:
+                                      Border.all(color: Colors.white, width: 1),
+                                  borderRadius: BorderRadius.circular(50),
+                                ),
+                                child: Image.asset(
+                                  'assets/images/03_main_mic_icon.png',
+                                )),
                           ),
                         ),
-                      ),
-                    )
-                  : Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.mic, color: Colors.green),
-                          onPressed: toggleVoiceInput,
+                      SizedBox(width: 20.w),
+                      Expanded(
+                        child: TextField(
+                          controller: _controller,
+                          focusNode: _focusNode,
+                          decoration: InputDecoration(
+                            hintText: _isVoiceInput || isKeyboardVisible
+                                ? ''
+                                : '영역을 터치하여 다리와 대화 하세요',
+                            hintStyle: CustomTextStyle.p42(context)
+                                .copyWith(color: Colors.grey),
+                          ),
+                          style: CustomTextStyle.p42w(context),
                         ),
-                        Expanded(
-                          child: TextField(
-                            controller: _controller,
-                            focusNode: _focusNode, // FocusNode 연결
-                            decoration: InputDecoration(
-                              hintText: '원하시는 글자를 입력하세요...',
-                              filled: true,
-                              fillColor: Colors.white,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(30),
-                                borderSide: BorderSide.none,
-                              ),
+                      ),
+                      InkWell(
+                        onTap: sendMessage,
+                        child: Image.asset(
+                          'assets/images/03_main_send_icon_01.png',
+                          width: 86.w,
+                        ),
+                      )
+                    ],
+                  ),
+                  if (_isVoiceInput) ...[
+                    Container(
+                      width: 1080.w,
+                      height: 950.h,
+                      color: const Color(0xFF171719),
+                      child: Stack(children: [
+                        Positioned(
+                          child: Align(
+                            alignment: Alignment.topCenter,
+                            child: Image.asset(
+                              'assets/images/03_main_vocui_emp.png',
+                              height: 700.h,
                             ),
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.send, color: Colors.red),
-                          onPressed: sendMessage,
-                        ),
-                      ],
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 50.h,
+                          child: Column(
+                            children: [
+                              Text('음성 인식이 잘 되도록',
+                                  style: CustomTextStyle.p60w(context)),
+                              Text('마이크에 가까이 대고 말하세요.',
+                                  style: CustomTextStyle.p42w(context)),
+                            ],
+                          ),
+                        )
+                      ]),
                     ),
+                  ],
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

@@ -1,35 +1,38 @@
+import 'package:catch_flutter/core/text_theme.dart';
 import 'package:flutter/material.dart';
 
-class ChatBubblePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = const Color.fromARGB(255, 255, 221, 182);
-    final path = Path();
+class ChatBubble extends StatelessWidget {
+  final String message;
+  final bool isUser;
 
-    // 말풍선 모양 그리기
-    path.moveTo(10, 0);
-    path.lineTo(size.width - 10, 0);
-    path.arcToPoint(Offset(size.width, 10),
-        radius: const Radius.circular(10), clockwise: true);
-    path.lineTo(size.width, size.height - 10);
-    path.arcToPoint(Offset(size.width - 10, size.height),
-        radius: const Radius.circular(10), clockwise: true);
-    path.lineTo(size.width / 2 + 10, size.height);
-    path.lineTo(size.width / 2, size.height + 10);
-    path.lineTo(size.width / 2 - 10, size.height);
-    path.lineTo(10, size.height);
-    path.arcToPoint(Offset(0, size.height - 10),
-        radius: const Radius.circular(10), clockwise: true);
-    path.lineTo(0, 10);
-    path.arcToPoint(const Offset(10, 0),
-        radius: const Radius.circular(10), clockwise: true);
-    path.close();
-
-    canvas.drawPath(path, paint);
-  }
+  const ChatBubble({required this.message, this.isUser = true, super.key});
 
   @override
-  bool shouldRepaint(CustomPainter oldDelegate) {
-    return false;
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.only(
+          topRight: Radius.circular(15),
+          bottomLeft: Radius.circular(15),
+          bottomRight: Radius.circular(15),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.shade300,
+            offset: const Offset(0, 3),
+            blurRadius: 6,
+          ),
+        ],
+      ),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: isUser
+            ? CustomTextStyle.p35(context)
+            : CustomTextStyle.p40(context),
+      ),
+    );
   }
 }
